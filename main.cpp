@@ -1,4 +1,5 @@
 #include <iostream>
+#include <memory>
 #include <cctype>
 #include <clang-c/Index.h>
 
@@ -6,9 +7,22 @@ using namespace std;
 
 ostream& operator<<(ostream& stream, const CXString& str) {
    stream << clang_getCString(str);
-   clang_disposeString(str);
    return stream;
 }
+
+class String {
+   public:
+      String(CXString&& str) : _str(str) {}
+      ~String() {
+         clang_disposeString(_str);
+      }
+
+      std::string getStr() const{
+         return clang_getCString(_str);
+      }
+private:
+   CXString _str;
+};
 
 bool haveUnderscore(const std::string& name) {
    for(auto& c : name)
@@ -34,6 +48,43 @@ bool isFuncName(const std::string& name) {
    return true;
 }
 
+struct Location {
+   std::string file;
+   unsigned line;
+};
+
+Location getLocation(CXSourceLocation src_loc) {
+    CXFile file;
+   unsigned line;
+   clang_getSpellingLocation(src_loc, &file, &line, nullptr, nullptr);
+
+   auto file_name = String(clang_getFileName(file)).getStr();
+   return Location{file_name, line};
+}
+
+ CXChildVisitResult visitFunction(CXCursor c, CXCursor parent, CXClientData client_data) {
+   if(clang_Location_isFromMainFile(clang_getCursorLocation(c)) == 0)
+                  return CXChildVisit_Continue;
+
+               
+               auto kind = clang_getCursorKind(c);
+               if(kind == CXCursor_CXXMethod) {
+                  auto name = String(clang_getCursorSpelling(c)).getStr();
+                  if(!isMethodName(name)) {
+                     auto loc = getLocation(clang_getCursorLocation(c));
+                     std::cout << "Method: " << name << ". File: " <<  loc.file << ". Line: " << loc.line << endl;
+                  }
+               } else if(kind == CXCursor_FunctionDecl) {
+                  auto name = String(clang_getCursorSpelling(c)).getStr();
+                  if(!isFuncName(name)) {
+                    auto loc = getLocation(clang_getCursorLocation(c));
+                     std::cout << "Function: " <<  name << ". File: " <<  loc.file << ". Line: " << loc.line << endl;
+                  }
+               }
+
+               return CXChildVisit_Recurse;
+ }
+
 int main(int argc, char* argv[]) {
    if(argc != 2) {
       std::cerr << "Not enough parameters" << std::endl;
@@ -50,36 +101,7 @@ int main(int argc, char* argv[]) {
    }
 
    CXCursor cursor = clang_getTranslationUnitCursor(unit);
-   clang_visitChildren(cursor, 
-         [](CXCursor c, CXCursor parent, CXClientData client_data) 
-            {
-               if(clang_Location_isFromMainFile(clang_getCursorLocation(c)) == 0)
-                  return CXChildVisit_Continue;
-
-               
-               auto kind = clang_getCursorKind(c);
-               if(kind == CXCursor_CXXMethod) {
-                  auto cxstring = clang_getCursorSpelling(c);
-                  auto name = clang_getCString(cxstring);
-                  if(!isMethodName(name)) {
-                     auto loc = clang_getCursorLocation(c);
-                     CXFile file;
-                     unsigned line;
-                     clang_getSpellingLocation(loc, &file, &line, nullptr, nullptr);
-                     auto cxstring2 = clang_getFileName(file);
-                     std::cout << "ERR Method: " << name << ". File: " <<  clang_getCString(cxstring2) << ". Line: " << line << endl;
-                     clang_disposeString(cxstring2);
-                  }
-                  clang_disposeString(cxstring);
-               } else if(kind == CXCursor_FunctionDecl) {
-                  auto cxstring = clang_getCursorSpelling(c);
-                  auto name = clang_getCString(cxstring);
-                  clang_disposeString(cxstring);
-               }
-
-               return CXChildVisit_Recurse;
-            },
-         nullptr);
+   clang_visitChildren(cursor, visitFunction, nullptr);
    
    clang_disposeTranslationUnit(unit);
    clang_disposeIndex(index);
