@@ -5,11 +5,6 @@
 
 using namespace std;
 
-ostream& operator<<(ostream& stream, const CXString& str) {
-   stream << clang_getCString(str);
-   return stream;
-}
-
 class String {
    public:
       String(CXString&& str) : _str(str) {}
