@@ -30,14 +30,18 @@ bool haveUnderscore(const std::string& name) {
 
 bool isMethodName(const std::string& name) {
     if(isupper(name[0]) || haveUnderscore(name)) return false;
-
     return true;
 }
 
 bool isFuncName(const std::string& name) {
     if(name == "main") return true;
-
     if(islower(name[0]) || haveUnderscore(name)) return false;
+    return true;
+}
+
+bool isVarName(const std::string& name) {
+    for(auto& c : name)
+        if(isupper(c)) return false;
 
     return true;
 }
@@ -56,25 +60,32 @@ Location getLocation(CXSourceLocation src_loc) {
     return Location{file_name, line};
 }
 
-CXChildVisitResult visitFunction(CXCursor c, CXCursor parent, CXClientData client_data) {
+void report(const std::string& what, const std::string& name, const Location& loc) {
+    std::cout << what << ": " << name << ". File: " << loc.file
+              << ". Line: " << loc.line << endl;
+}
+
+CXChildVisitResult visitFunction(CXCursor c, [[maybe_unused]] CXCursor parent,
+                                 [[maybe_unused]] CXClientData client_data) {
     if(clang_Location_isFromMainFile(clang_getCursorLocation(c)) == 0)
         return CXChildVisit_Continue;
 
     auto kind = clang_getCursorKind(c);
-    if(kind == CXCursor_CXXMethod) {
-        auto name = String(clang_getCursorSpelling(c)).getStr();
-        if(!isMethodName(name)) {
-            auto loc = getLocation(clang_getCursorLocation(c));
-            std::cout << "Method: " << name << ". File: " << loc.file
-                      << ". Line: " << loc.line << endl;
-        }
-    } else if(kind == CXCursor_FunctionDecl) {
-        auto name = String(clang_getCursorSpelling(c)).getStr();
-        if(!isFuncName(name)) {
-            auto loc = getLocation(clang_getCursorLocation(c));
-            std::cout << "Function: " << name << ". File: " << loc.file
-                      << ". Line: " << loc.line << endl;
-        }
+    auto name = String(clang_getCursorSpelling(c)).getStr();
+    auto loc = getLocation(clang_getCursorLocation(c));
+
+    switch(kind) {
+    case CXCursor_CXXMethod:
+        if(!isMethodName(name)) report("Method", name, loc);
+        break;
+    case CXCursor_FunctionDecl:
+        if(!isFuncName(name)) report("Function", name, loc);
+        break;
+    case CXCursor_VarDecl:
+        if(!clang_isConstQualifiedType(clang_getCursorType(c)) && !isVarName(name))
+            report("Variable", name, loc);
+    default:
+        break;
     }
 
     return CXChildVisit_Recurse;
