@@ -1,5 +1,6 @@
 int banned_global_variable;
 const int unbanned_global_variable;
+constexpr int unbanned_global_variable2 = 2;
 
 void ValidFuncName();
 void invalidFuncName();

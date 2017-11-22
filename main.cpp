@@ -24,32 +24,6 @@ class String {
     CXString _str;
 };
 
-bool isMethodName(const std::string& name) {
-    std::regex r("([a-z][a-zA-Z0-9]+)");
-    return std::regex_match(name, r);
-}
-
-bool isFuncName(const std::string& name) {
-    if(name == "main") return true;
-
-    std::regex r("([A-Z][a-zA-Z0-9]+)");
-    return std::regex_match(name, r);
-}
-
-bool isVarName(const std::string& name) {
-    std::regex r("([a-z][_a-z0-9]+)");
-    return std::regex_match(name, r);
-}
-
-bool isFieldName(const std::string& name) {
-    std::regex r("^_([a-z0-9]+).*");
-    return std::regex_match(name, r);
-}
-
-bool isConst(const CXCursor& c) {
-    return clang_isConstQualifiedType(clang_getCursorType(c));
-}
-
 struct Location {
     std::string file;
     unsigned line;
@@ -69,34 +43,88 @@ void report(const std::string& what, const std::string& name, const Location& lo
               << ". Line: " << loc.line << endl;
 }
 
+struct Cursor {
+    CXCursor current;
+    CXCursor parent;
+};
+
+class FileUnit {
+  public:
+    FileUnit(const CXCursor& c) : _first_cursor(c) {
+    }
+
+    void addCursor(const Cursor& c) {
+        _cursors.emplace_back(c);
+    }
+
+    void checkCursor(const Cursor& cursor) {
+        auto c = cursor.current;
+        auto kind = clang_getCursorKind(c);
+        auto name = String(clang_getCursorSpelling(c)).getStr();
+        auto loc = getLocation(clang_getCursorLocation(c));
+
+        switch(kind) {
+        case CXCursor_CXXMethod:
+            if(!isMethodName(name)) report("Method", name, loc);
+            break;
+        case CXCursor_FunctionDecl:
+            if(!isFuncName(name)) report("Function", name, loc);
+            break;
+        case CXCursor_VarDecl:
+            if(!isConst(c) && !isVarName(name)) report("Variable", name, loc);
+            if(!isConst(c) && clang_equalCursors(clang_getCursorSemanticParent(c), _first_cursor))
+                report("Global variable", name, loc);
+            break;
+        case CXCursor_FieldDecl:
+            if(!isFieldName(name)) report("Field", name, loc);
+        default:
+            break;
+        }
+    }
+
+    void checkCursors() {
+        for(auto& c : _cursors) checkCursor(c);
+    }
+
+  private:
+    bool isMethodName(const std::string& name) {
+        std::regex r("([a-z][a-zA-Z0-9]+)");
+        return std::regex_match(name, r);
+    }
+
+    bool isFuncName(const std::string& name) {
+        if(name == "main") return true;
+
+        std::regex r("([A-Z][a-zA-Z0-9]+)");
+        return std::regex_match(name, r);
+    }
+
+    bool isVarName(const std::string& name) {
+        std::regex r("([a-z][_a-z0-9]+)");
+        return std::regex_match(name, r);
+    }
+
+    bool isFieldName(const std::string& name) {
+        std::regex r("^_([a-z0-9]+).*");
+        return std::regex_match(name, r);
+    }
+
+    bool isConst(const CXCursor& c) {
+        return clang_isConstQualifiedType(clang_getCursorType(c));
+    }
+
+  private:
+    [[maybe_unused]] CXCursor _first_cursor;
+    std::vector<Cursor> _cursors;
+};
+
 CXChildVisitResult visitFunction(CXCursor c, [[maybe_unused]] CXCursor parent,
                                  CXClientData client_data) {
     if(clang_Location_isFromMainFile(clang_getCursorLocation(c)) == 0)
         return CXChildVisit_Continue;
 
-    auto kind = clang_getCursorKind(c);
-    auto name = String(clang_getCursorSpelling(c)).getStr();
-    auto loc = getLocation(clang_getCursorLocation(c));
-
-    switch(kind) {
-    case CXCursor_CXXMethod:
-        if(!isMethodName(name)) report("Method", name, loc);
-        break;
-    case CXCursor_FunctionDecl:
-        if(!isFuncName(name)) report("Function", name, loc);
-        break;
-    case CXCursor_VarDecl:
-        if(!isConst(c) && !isVarName(name)) report("Variable", name, loc);
-        if(!isConst(c) && clang_equalCursors(clang_getCursorSemanticParent(c),
-                                             *static_cast<CXCursor*>(client_data)))
-            report("Global variable", name, loc);
-        break;
-    case CXCursor_FieldDecl:
-        if(!isFieldName(name)) report("Field", name, loc);
-    default:
-        break;
-    }
-
+    auto fu = static_cast<FileUnit*>(client_data);
+    fu->addCursor({c, parent});
     return CXChildVisit_Recurse;
 }
 
@@ -116,7 +144,9 @@ int main(int argc, char* argv[]) {
     }
 
     CXCursor cursor = clang_getTranslationUnitCursor(unit);
-    clang_visitChildren(cursor, visitFunction, &cursor);
+    FileUnit f{cursor};
+    clang_visitChildren(cursor, visitFunction, &f);
+    f.checkCursors();
 
     clang_disposeTranslationUnit(unit);
     clang_disposeIndex(index);
