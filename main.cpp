@@ -6,7 +6,6 @@
 
 #include <clang-c/Index.h>
 
-
 using namespace std;
 
 class String {
@@ -31,6 +30,8 @@ bool isMethodName(const std::string& name) {
 }
 
 bool isFuncName(const std::string& name) {
+    if(name == "main") return true;
+
     std::regex r("([A-Z][a-zA-Z0-9]+)");
     return std::regex_match(name, r);
 }
@@ -40,6 +41,11 @@ bool isVarName(const std::string& name) {
         if(isupper(c)) return false;
 
     return true;
+}
+
+bool isFieldName(const std::string& name) {
+    std::regex r("^_([a-z0-9]+).*");
+    return std::regex_match(name, r);
 }
 
 struct Location {
@@ -80,8 +86,8 @@ CXChildVisitResult visitFunction(CXCursor c, [[maybe_unused]] CXCursor parent,
     case CXCursor_VarDecl:
         if(!clang_isConstQualifiedType(clang_getCursorType(c)) && !isVarName(name))
             report("Variable", name, loc);
-    case CXCursor_PreprocessingDirective:
-        report("Macro", name, loc);
+    case CXCursor_FieldDecl:
+        if(!isFieldName(name)) report("Field", name, loc);
     default:
         break;
     }
