@@ -1,7 +1,11 @@
-#include <cctype>
-#include <clang-c/Index.h>
 #include <iostream>
 #include <memory>
+#include <regex>
+
+#include <cctype>
+
+#include <clang-c/Index.h>
+
 
 using namespace std;
 
@@ -21,22 +25,14 @@ class String {
     CXString _str;
 };
 
-bool haveUnderscore(const std::string& name) {
-    for(auto& c : name)
-        if(c == '_') return true;
-
-    return false;
-}
-
 bool isMethodName(const std::string& name) {
-    if(isupper(name[0]) || haveUnderscore(name)) return false;
-    return true;
+    std::regex r("([a-z][a-zA-Z0-9]+)");
+    return std::regex_match(name, r);
 }
 
 bool isFuncName(const std::string& name) {
-    if(name == "main") return true;
-    if(islower(name[0]) || haveUnderscore(name)) return false;
-    return true;
+    std::regex r("([A-Z][a-zA-Z0-9]+)");
+    return std::regex_match(name, r);
 }
 
 bool isVarName(const std::string& name) {
@@ -84,6 +80,8 @@ CXChildVisitResult visitFunction(CXCursor c, [[maybe_unused]] CXCursor parent,
     case CXCursor_VarDecl:
         if(!clang_isConstQualifiedType(clang_getCursorType(c)) && !isVarName(name))
             report("Variable", name, loc);
+    case CXCursor_PreprocessingDirective:
+        report("Macro", name, loc);
     default:
         break;
     }

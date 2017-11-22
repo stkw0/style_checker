@@ -9,7 +9,7 @@ project(style_checker)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CXX_STANDARD_REQUIRED YES)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Werror -Wcast-qual -Wconversion -Wunreachable-code -Wmissing-noreturn -Wshadow -Wfatal-errors")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wall -Wextra -Werror -Wcast-qual -Wconversion -Wunreachable-code -Wmissing-noreturn -Wshadow -Wfatal-errors")
 
 include_directories(/usr/lib/llvm/5/include)
 
