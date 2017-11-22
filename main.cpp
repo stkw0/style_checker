@@ -100,7 +100,7 @@ class FileUnit {
     }
 
     bool isVarName(const std::string& name) {
-        std::regex r("([a-z][_a-z0-9]+)");
+        std::regex r("([a-z]?[_a-z0-9]+)");
         return std::regex_match(name, r);
     }
 
