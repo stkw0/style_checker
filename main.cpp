@@ -37,15 +37,17 @@ bool isFuncName(const std::string& name) {
 }
 
 bool isVarName(const std::string& name) {
-    for(auto& c : name)
-        if(isupper(c)) return false;
-
-    return true;
+    std::regex r("([a-z][_a-z0-9]+)");
+    return std::regex_match(name, r);
 }
 
 bool isFieldName(const std::string& name) {
     std::regex r("^_([a-z0-9]+).*");
     return std::regex_match(name, r);
+}
+
+bool isConst(const CXCursor& c) {
+    return clang_isConstQualifiedType(clang_getCursorType(c));
 }
 
 struct Location {
@@ -68,7 +70,7 @@ void report(const std::string& what, const std::string& name, const Location& lo
 }
 
 CXChildVisitResult visitFunction(CXCursor c, [[maybe_unused]] CXCursor parent,
-                                 [[maybe_unused]] CXClientData client_data) {
+                                 CXClientData client_data) {
     if(clang_Location_isFromMainFile(clang_getCursorLocation(c)) == 0)
         return CXChildVisit_Continue;
 
@@ -84,8 +86,11 @@ CXChildVisitResult visitFunction(CXCursor c, [[maybe_unused]] CXCursor parent,
         if(!isFuncName(name)) report("Function", name, loc);
         break;
     case CXCursor_VarDecl:
-        if(!clang_isConstQualifiedType(clang_getCursorType(c)) && !isVarName(name))
-            report("Variable", name, loc);
+        if(!isConst(c) && !isVarName(name)) report("Variable", name, loc);
+        if(!isConst(c) && clang_equalCursors(clang_getCursorSemanticParent(c),
+                                             *static_cast<CXCursor*>(client_data)))
+            report("Global variable", name, loc);
+        break;
     case CXCursor_FieldDecl:
         if(!isFieldName(name)) report("Field", name, loc);
     default:
@@ -111,7 +116,7 @@ int main(int argc, char* argv[]) {
     }
 
     CXCursor cursor = clang_getTranslationUnitCursor(unit);
-    clang_visitChildren(cursor, visitFunction, nullptr);
+    clang_visitChildren(cursor, visitFunction, &cursor);
 
     clang_disposeTranslationUnit(unit);
     clang_disposeIndex(index);

@@ -1,3 +1,6 @@
+int banned_global_variable;
+const int unbanned_global_variable;
+
 void ValidFuncName();
 void invalidFuncName();
 void invalid_funcName();
