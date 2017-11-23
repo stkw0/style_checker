@@ -1,12 +1,13 @@
 #include <iostream>
 #include <memory>
 #include <regex>
+#include <unordered_map>
 
 #include <cctype>
 
 #include <clang-c/Index.h>
 
-using namespace std;
+using std::regex;
 
 class String {
   public:
@@ -40,7 +41,7 @@ Location getLocation(CXSourceLocation src_loc) {
 
 void report(const std::string& what, const std::string& name, const Location& loc) {
     std::cout << what << ": " << name << ". File: " << loc.file
-              << ". Line: " << loc.line << endl;
+              << ". Line: " << loc.line << std::endl;
 }
 
 struct Cursor {
@@ -63,49 +64,29 @@ class FileUnit {
         auto name = String(clang_getCursorSpelling(c)).getStr();
         auto loc = getLocation(clang_getCursorLocation(c));
 
+        if(auto r = naming_rules.find(kind);
+           r != naming_rules.end() && !std::regex_match(name, r->second))
+            report(String(clang_getCursorKindSpelling(kind)).getStr(), name, loc);
+
         switch(kind) {
-        case CXCursor_CXXMethod:
-            if(!isMethodName(name)) report("Method", name, loc);
-            break;
-        case CXCursor_FunctionDecl:
-            if(!isFuncName(name)) report("Function", name, loc);
-            break;
         case CXCursor_VarDecl:
             if(!isConst(c) && !isVarName(name)) report("Variable", name, loc);
-            if(!isConst(c) && clang_equalCursors(clang_getCursorSemanticParent(c), _first_cursor))
+            if(!isStatic(c) && !isConst(c) &&
+               clang_equalCursors(clang_getCursorSemanticParent(c), _first_cursor))
                 report("Global variable", name, loc);
             break;
-        case CXCursor_FieldDecl:
-            if(!isFieldName(name)) report("Field", name, loc);
         default:
             break;
         }
     }
 
     void checkCursors() {
-        for(auto& c : _cursors) checkCursor(c);
+        for(const auto& c : _cursors) checkCursor(c);
     }
 
   private:
-    bool isMethodName(const std::string& name) {
-        std::regex r("([a-z][a-zA-Z0-9]+)");
-        return std::regex_match(name, r);
-    }
-
-    bool isFuncName(const std::string& name) {
-        if(name == "main") return true;
-
-        std::regex r("([A-Z][a-zA-Z0-9]+)");
-        return std::regex_match(name, r);
-    }
-
     bool isVarName(const std::string& name) {
         std::regex r("([a-z]?[_a-z0-9]+)");
-        return std::regex_match(name, r);
-    }
-
-    bool isFieldName(const std::string& name) {
-        std::regex r("^_([a-z0-9]+).*");
         return std::regex_match(name, r);
     }
 
@@ -113,9 +94,17 @@ class FileUnit {
         return clang_isConstQualifiedType(clang_getCursorType(c));
     }
 
+    bool isStatic(const CXCursor& c) {
+        return clang_Cursor_getStorageClass(c) == CX_SC_Static;
+    }
+
   private:
-    [[maybe_unused]] CXCursor _first_cursor;
+    CXCursor _first_cursor;
     std::vector<Cursor> _cursors;
+    std::unordered_map<CXCursorKind, std::regex> naming_rules = {
+        {CXCursor_CXXMethod, regex("([a-z][a-zA-Z0-9]+)")},
+        {CXCursor_FunctionDecl, regex("main|([A-Z][a-zA-Z0-9]+)")},
+        {CXCursor_FieldDecl, regex("^_([a-z0-9]+).*")}};
 };
 
 CXChildVisitResult visitFunction(CXCursor c, [[maybe_unused]] CXCursor parent,
