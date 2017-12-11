@@ -9,21 +9,12 @@
 
 using std::regex;
 
-class String {
-  public:
-    String(CXString&& str) : _str(str) {
-    }
-    ~String() {
-        clang_disposeString(_str);
-    }
-
-    std::string getStr() const {
-        return clang_getCString(_str);
-    }
-
-  private:
-    CXString _str;
-};
+// Return a copy of the CXString in a std::string
+std::string ToString(CXString&& src_str) {
+    const std::string dst_str{clang_getCString(src_str)};
+    clang_disposeString(src_str);
+    return dst_str;
+}
 
 struct Location {
     std::string file;
@@ -35,7 +26,7 @@ Location getLocation(CXSourceLocation src_loc) {
     unsigned line;
     clang_getSpellingLocation(src_loc, &file, &line, nullptr, nullptr);
 
-    auto file_name = String(clang_getFileName(file)).getStr();
+    auto file_name = ToString(clang_getFileName(file));
     return Location{file_name, line};
 }
 
@@ -61,21 +52,24 @@ class FileUnit {
     void checkCursor(const Cursor& cursor) {
         auto c = cursor.current;
         auto kind = clang_getCursorKind(c);
-        auto name = String(clang_getCursorSpelling(c)).getStr();
+        auto name = ToString(clang_getCursorSpelling(c));
         auto loc = getLocation(clang_getCursorLocation(c));
 
-        if(auto r = naming_rules.find(kind);
-           r != naming_rules.end() && !std::regex_match(name, r->second))
-            report(String(clang_getCursorKindSpelling(kind)).getStr(), name, loc);
+        bool valid_name = true;
+        if(auto r = _naming_rules.find(kind);
+           r != _naming_rules.end() && !std::regex_match(name, r->second))
+            valid_name = false;
 
         switch(kind) {
         case CXCursor_VarDecl:
-            if(!isConst(c) && !isVarName(name)) report("Variable", name, loc);
+            if(!isConst(c) && !valid_name) report("Variable", name, loc);
             if(!isStatic(c) && !isConst(c) &&
                clang_equalCursors(clang_getCursorSemanticParent(c), _first_cursor))
                 report("Global variable", name, loc);
             break;
         default:
+            if(!valid_name)
+                report(ToString(clang_getCursorKindSpelling(kind)), name, loc);
             break;
         }
     }
@@ -85,11 +79,6 @@ class FileUnit {
     }
 
   private:
-    bool isVarName(const std::string& name) {
-        std::regex r("([a-z]?[_a-z0-9]+)");
-        return std::regex_match(name, r);
-    }
-
     bool isConst(const CXCursor& c) {
         return clang_isConstQualifiedType(clang_getCursorType(c));
     }
@@ -101,10 +90,13 @@ class FileUnit {
   private:
     CXCursor _first_cursor;
     std::vector<Cursor> _cursors;
-    std::unordered_map<CXCursorKind, std::regex> naming_rules = {
+
+    std::unordered_map<CXCursorKind, std::regex> _naming_rules = {
         {CXCursor_CXXMethod, regex("([a-z][a-zA-Z0-9]+)")},
         {CXCursor_FunctionDecl, regex("main|([A-Z][a-zA-Z0-9]+)")},
-        {CXCursor_FieldDecl, regex("^_([a-z0-9]+).*")}};
+        {CXCursor_FieldDecl, regex("^_([a-z0-9]+).*")},
+        {CXCursor_VarDecl, regex("([a-z]?[_a-z0-9]+)")},
+    };
 };
 
 CXChildVisitResult visitFunction(CXCursor c, [[maybe_unused]] CXCursor parent,
